@@ -1,0 +1,35 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+
+# Large model files (Do NOT upload to GitHub!)
+*.onnx
+*.bin
+*.pt
+kokoro-v1.0.onnx
+
+# Log files
+*.log
+realtimesst.log
+
+# Generated folders & data
+screenshots/
+PyWhatKit_DB.txt
+handwriting.png
+ascii_art.txt
+*.png
+*.jpg
+*.jpeg
+
+# OS generated files
+.DS_Store
+Thumbs.db
+idea.md
+idea.txt

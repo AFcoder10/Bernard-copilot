@@ -1,0 +1,12 @@
+pyautogui
+openwakeword
+pyaudio
+ollama
+RealtimeTTS[system,edge]
+SpeechRecognition
+ddgs
+RealtimeSTT
+pyperclip
+rich
+uiautomation
+pywhatkit
