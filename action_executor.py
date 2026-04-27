@@ -1,4 +1,5 @@
 import json
+import re
 from tools import TOOL_REGISTRY
 
 def execute_action(json_payload: str):
@@ -11,10 +12,30 @@ def execute_action(json_payload: str):
     print(f"Received Payload: {json_payload}")
     
     try:
-        data = json.loads(json_payload)
+        # Strip markdown code fences if the LLM wrapped it
+        cleaned = json_payload.strip()
+        cleaned = re.sub(r'^```(?:json)?\s*', '', cleaned)
+        cleaned = re.sub(r'\s*```$', '', cleaned)
+        
+        # Robustly extract the first complete JSON object
+        brace_depth = 0
+        start = cleaned.find('{')
+        if start == -1:
+            return {"error": "No JSON object found in payload"}
+        
+        for i in range(start, len(cleaned)):
+            if cleaned[i] == '{':
+                brace_depth += 1
+            elif cleaned[i] == '}':
+                brace_depth -= 1
+                if brace_depth == 0:
+                    cleaned = cleaned[start:i+1]
+                    break
+            
+        data = json.loads(cleaned)
     except json.JSONDecodeError as e:
         print(f"Error: Invalid JSON payload -> {e}")
-        return {"error": "Invalid JSON"}
+        return {"error": f"Invalid JSON: {e}"}
 
     action_name = data.get("action")
     if not action_name:
@@ -25,12 +46,18 @@ def execute_action(json_payload: str):
     kwargs = data.get("args", {})
     
     # If the LLM forgot to wrap args in an "args" key, try to recover
-    if not kwargs and len(data) > 1:
+    if "args" not in data and len(data) > 1:
         kwargs = {k: v for k, v in data.items() if k != "action"}
 
     if action_name not in TOOL_REGISTRY:
-        print(f"Error: Unknown action '{action_name}'")
-        return {"error": f"Unknown action: {action_name}"}
+        # Fuzzy match: try to find the closest tool name
+        close_matches = [name for name in TOOL_REGISTRY if action_name.lower() in name.lower() or name.lower() in action_name.lower()]
+        if close_matches:
+            action_name = close_matches[0]
+            print(f"Fuzzy-matched to: {action_name}")
+        else:
+            print(f"Error: Unknown action '{action_name}'")
+            return {"error": f"Unknown action: {action_name}. Available tools: {', '.join(list(TOOL_REGISTRY.keys())[:10])}..."}
 
     tool_func = TOOL_REGISTRY[action_name]
     
@@ -46,6 +73,14 @@ def execute_action(json_payload: str):
         print(f"Result: {result}")
         print("-----------------------")
         return result
+    except TypeError as e:
+        # Common issue: LLM passes wrong argument names. Show what was expected.
+        import inspect
+        sig = inspect.signature(tool_func)
+        print(f"Execution Error: {e}")
+        print(f"Expected signature: {action_name}{sig}")
+        print("-----------------------")
+        return {"error": f"{e}. Expected: {action_name}{sig}"}
     except Exception as e:
         print(f"Execution Error: {e}")
         print("-----------------------")

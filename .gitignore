@@ -9,7 +9,7 @@ venv/
 env/
 ENV/
 
-# Large model files (Do NOT upload to GitHub!)
+# Large model files 
 *.onnx
 *.bin
 *.pt
@@ -33,3 +33,5 @@ ascii_art.txt
 Thumbs.db
 idea.md
 idea.txt
+session.json
+bernard_memory.db
