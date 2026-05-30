@@ -820,6 +820,44 @@ def switch_to(target: str):
     except Exception as e:
         return {"status": "error", "message": str(e)}
 
+def get_music_status():
+    """Gets the currently playing music/media status and info on Windows (like Spotify or YouTube)."""
+    print("[Tool] Getting current music status...")
+    try:
+        import asyncio
+        from winrt.windows.media.control import GlobalSystemMediaTransportControlsSessionManager
+        
+        async def _get_media():
+            manager = await GlobalSystemMediaTransportControlsSessionManager.request_async()
+            session = manager.get_current_session()
+            if not session:
+                return {"status": "success", "message": "No media is currently playing or paused."}
+                
+            props = await session.try_get_media_properties_async()
+            playback = session.get_playback_info()
+            
+            # Map playback status enum
+            # 0: Closed, 1: Opened, 2: Changing, 3: Stopped, 4: Playing, 5: Paused
+            status_map = {
+                0: "Closed", 1: "Opened", 2: "Changing", 
+                3: "Stopped", 4: "Playing", 5: "Paused"
+            }
+            status_code = getattr(playback, 'playback_status', 0)
+            status_str = status_map.get(status_code, "Unknown")
+            
+            return {
+                "status": "success",
+                "title": props.title,
+                "artist": props.artist,
+                "playback_status": status_str
+            }
+            
+        return asyncio.run(_get_media())
+    except ImportError:
+        return {"status": "error", "message": "Required modules not found. Please run: pip install winrt-Windows.Media.Control winrt-Windows.Foundation"}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
 # =============================================================================
 # TOOL REGISTRY — Bernard picks what he needs from here
 # =============================================================================
@@ -870,6 +908,7 @@ TOOL_REGISTRY = {
     "set_timer": set_timer,
     "set_clipboard": set_clipboard,
     "list_open_windows": list_open_windows,
-    "switch_to": switch_to
+    "switch_to": switch_to,
+    "get_music_status": get_music_status
 }
 

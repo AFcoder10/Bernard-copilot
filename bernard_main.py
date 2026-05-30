@@ -5,17 +5,20 @@ import queue
 import re
 import sys
 import logging
+import warnings
 import ollama
 
-# Suppress RealtimeTTS internal warnings about PCM streams
+# Suppress messy developer warnings from PyTorch and Hugging Face
+warnings.filterwarnings("ignore")
 logging.getLogger().setLevel(logging.ERROR)
+logging.getLogger("huggingface_hub").setLevel(logging.ERROR)
 
 # Force UTF-8 encoding for standard output to prevent emoji/unicode crashes on Windows terminals
 if sys.stdout.encoding.lower() != 'utf-8':
     sys.stdout.reconfigure(encoding='utf-8')
 # Inject mpv into path automatically so Edge TTS works flawlessly
 os.environ["PATH"] += os.pathsep + r"C:\Program Files\MPV Player"
-from RealtimeTTS import TextToAudioStream, EdgeEngine, SystemEngine
+from RealtimeTTS import TextToAudioStream, SystemEngine, KokoroEngine
 from RealtimeSTT import AudioToTextRecorder
 
 from rich.console import Console
@@ -85,6 +88,8 @@ def process_agentic_loop(tts_stream, is_followup=False):
     from rich.status import Status
     from rich.live import Live
     
+    interrupted_input = None
+    
     if is_followup:
         status_msg = "[bold cyan]Bernard is summarizing...[/bold cyan]"
         use_thinking = False
@@ -138,7 +143,10 @@ def process_agentic_loop(tts_stream, is_followup=False):
 
         # Start TTS playing in background
         tts_stream.feed(tts_generator())
-        tts_stream.play_async()
+        tts_stream.play_async(
+            sentence_silence_duration=0.8,
+            comma_silence_duration=0.3
+        )
         
         def process_chunk(content):
             nonlocal decided, is_json_action, json_buffer, spoken_text, detection_buffer
@@ -280,40 +288,45 @@ def main():
         padding=(1, 4)
     ))
     
-    # Initialize the TTS stream player with UK Male Voice
+    # Initialize the TTS stream player with Kokoro Neural Voice
     try:
-        engine = EdgeEngine(rate=25)
-        engine.set_voice("en-GB-RyanNeural")
-        console.print("[green]✓[/green] TTS Engine loaded (en-GB-RyanNeural @ 1.25x)")
+        console.print("[dim]Allocating VRAM and initializing local Kokoro Neural Engine...[/dim]")
+        engine = KokoroEngine(
+            voice="am_puck",  # Very natural, conversational American Male (closest style to af_bella)
+            default_speed=1.35
+        )
+        console.print("[green]✓[/green] TTS Engine loaded (Kokoro • am_puck @ 1.35x)")
     except Exception as e:
-        console.print(f"[yellow]⚠[/yellow] EdgeEngine failed, using system voice: {e}")
+        console.print(f"[yellow]⚠[/yellow] KokoroEngine failed, using system voice: {e}")
         engine = SystemEngine()
         
     tts_stream = TextToAudioStream(engine)
     
-    console.print("[dim]Loading Whisper Base STT Model...[/dim]")
+    console.print("[dim]Loading Moonshine v2 Tiny STT Model...[/dim]")
     
-    # When running as a PyInstaller bundle, use the bundled model instead of downloading
-    whisper_model = "base"
-    if getattr(sys, 'frozen', False):
-        bundled_model_path = os.path.join(sys._MEIPASS, 'whisper_model')
-        if os.path.exists(bundled_model_path):
-            whisper_model = bundled_model_path
-            console.print(f"[dim]Using bundled model from: {bundled_model_path}[/dim]")
+    # When running as a PyInstaller bundle, handle bundled model path here if packaging Moonshine in the future
     
+    def realtime_callback(text):
+        if text.strip():
+            # \r carriage return and \033[K clears the current line so it acts in-place
+            sys.stdout.write(f"\r\033[K\033[90m🎤 {text}\033[0m")
+            sys.stdout.flush()
+
     recorder = AudioToTextRecorder(
-        model=whisper_model,                 # Whisper base (~74MB)
-        language="en",                       # Skip language detection = faster
-        compute_type="int8",                 # Quantized = faster inference
-        spinner=False,                       # No terminal spinner clutter
-        post_speech_silence_duration=0.3,    # React 0.3s after you stop talking (default: 0.6)
-        min_length_of_recording=0.3,         # Accept very short commands
-        pre_recording_buffer_duration=0.5,   # Keep 0.5s buffer before speech
-        silero_sensitivity=0.4,              # VAD sensitivity (0=off, 1=max)
-        beam_size=1,                         # Greedy decoding = fastest (default: 5)
-        initial_prompt="Bernard AI assistant conversation.",  # Whisper context hint
+        transcription_engine="moonshine",
+        model="UsefulSensors/moonshine-streaming-tiny",
+        language="en",
+        spinner=False,
+        post_speech_silence_duration=0.3,
+        min_length_of_recording=0.3,
+        pre_recording_buffer_duration=0.5,
+        silero_sensitivity=0.4,
+        initial_prompt="Bernard AI assistant conversation.",
+        enable_realtime_transcription=True,
+        use_main_model_for_realtime=True,
+        on_realtime_transcription_update=realtime_callback,
     )
-    console.print("[green]✓[/green] STT loaded (Whisper base • int8 • beam=1)")
+    console.print("[green]✓[/green] STT loaded (Moonshine v2 Tiny • Streaming)")
     
     console.print()
     console.print(Panel(
@@ -337,55 +350,16 @@ def main():
     while tts_stream.is_playing():
         time.sleep(0.1)
     
-    # Shared queue for both voice and keyboard input
-    import queue
-    input_queue = queue.Queue()
-    
+    # Shared queue for both voice and keyboard input is defined globally
     # Thread 1: Voice input (STT)
     def voice_input_loop():
-        wake_words = ["bernard", "hey bernard", "ok bernard", "okay bernard", "hi bernard"]
-        last_awake_time = 0
-        AWAKE_DURATION = 15.0  # seconds Bernard stays awake after last interaction
-        
         try:
             while True:
                 text = recorder.text()
                 if text and text.strip():
-                    clean_text = text.lower().strip('.!?,\n ')
-                    
-                    # 1. Check if the transcript contains any wake word
-                    is_wake_word_detected = False
-                    for ww in wake_words:
-                        if ww in clean_text:
-                            is_wake_word_detected = True
-                            
-                            # Strip the wake word from the beginning if it starts with it
-                            if clean_text.startswith(ww):
-                                lower_orig = text.lower()
-                                idx = lower_orig.find(ww)
-                                if idx != -1:
-                                    text = text[idx + len(ww):].strip('.!?,\n ')
-                            break
-                            
-                    # 2. Check if Bernard is currently "awake" from a previous interaction
-                    is_currently_awake = (time.time() - last_awake_time) < AWAKE_DURATION
-                            
-                    if is_wake_word_detected or is_currently_awake:
-                        # Reset the awake timer because we had an interaction
-                        last_awake_time = time.time()
-                        
-                        # If they just said "Bernard" and nothing else
-                        if not text.strip():
-                            text = "Yes, I am here."
-                        
-                        # Only print the "awake" status if we didn't use the wake word this time
-                        if not is_wake_word_detected:
-                            console.print("[dim italic](Processed because Bernard is awake)[/dim italic]")
-                            
-                        input_queue.put(("voice", text.strip()))
-                    else:
-                        # Ignored background speech (no wake word and not currently awake)
-                        console.print(f"[dim]Ignored (asleep): {text}[/dim]")
+                    sys.stdout.write("\r\033[K")
+                    sys.stdout.flush()
+                    input_queue.put(("voice", text.strip()))
         except Exception:
             pass
     
@@ -417,6 +391,13 @@ def main():
             tts_stream.play_async(sentence_silence_duration=1.5, comma_silence_duration=0.3)
             while tts_stream.is_playing():
                 time.sleep(0.1)
+            
+            # Forcefully exit the process to kill all stubborn background STT/TTS threads
+            try:
+                recorder.shutdown()
+            except:
+                pass
+            os._exit(0)
             return True
         return False
     

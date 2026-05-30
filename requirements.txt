@@ -10,3 +10,5 @@ pyperclip
 rich
 uiautomation
 pywhatkit
+transformers
+torch

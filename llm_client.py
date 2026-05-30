@@ -48,6 +48,7 @@ When you need to use a tool, output ONLY a single raw JSON object — no markdow
 --- MEDIA & ENTERTAINMENT ---
 25. play_youtube: Play a YouTube video by search query. Example: {"action": "play_youtube", "args": {"query": "lofi hip hop"}}
 26. send_whatsapp_message: Send a WhatsApp message. Example: {"action": "send_whatsapp_message", "args": {"phone_no": "+1234567890", "message": "Hello"}}
+27. get_music_status: Fetch the currently playing song title, artist, and playback status across Windows apps (Spotify, Apple Music, etc.). Example: {"action": "get_music_status", "args": {}}
 
 --- SYSTEM CONTROL ---
 27. set_system_volume: Set master volume 0-100. Example: {"action": "set_system_volume", "args": {"level": 50}}
