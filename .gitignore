@@ -39,3 +39,5 @@ piper_windows
 en_GB-alan-medium.onnx.json
 test_output.mp3
 test_edge_tts.py
+build
+dist

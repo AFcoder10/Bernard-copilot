@@ -7,6 +7,29 @@ import sys
 import logging
 import warnings
 import ollama
+import webview
+
+ui_window = None
+
+def update_ui_state(state, amplitude=0):
+    try:
+        import webview
+        windows = webview.windows
+        if windows:
+            windows[0].evaluate_js(f"if(window.updateBernardState) window.updateBernardState('{state}', {amplitude})")
+    except Exception:
+        pass
+
+def add_chat_message(role, text, is_partial=False):
+    try:
+        import webview
+        windows = webview.windows
+        if windows:
+            escaped_text = text.replace('\\', '\\\\').replace('`', '\\`')
+            is_p = 'true' if is_partial else 'false'
+            windows[0].evaluate_js(f"if(window.addChatMessage) window.addChatMessage('{role}', `{escaped_text}`, {is_p})")
+    except Exception:
+        pass
 
 # Suppress messy developer warnings from PyTorch and Hugging Face
 warnings.filterwarnings("ignore")
@@ -106,6 +129,7 @@ def process_agentic_loop(tts_stream, is_followup=False):
         status_msg = "[bold cyan]Bernard is thinking deeply... 🧠[/bold cyan]" if is_complex else "[bold cyan]Bernard is thinking...[/bold cyan]"
     
     try:
+        update_ui_state('thinking')
         # Show thinking spinner while waiting for first token
         with Status(status_msg, spinner="dots", console=console):
             response_stream = ollama.chat(
@@ -142,10 +166,25 @@ def process_agentic_loop(tts_stream, is_followup=False):
                 yield chunk
 
         # Start TTS playing in background
+        def tts_audio_chunk(chunk):
+            import numpy as np
+            try:
+                # RealtimeTTS passes 16-bit PCM chunks by default
+                audio = np.frombuffer(chunk, dtype=np.int16)
+                amp = min(1.0, float(np.sqrt(np.mean((audio / 32768.0)**2)) * 5))
+                update_ui_state('speaking', amp)
+            except Exception:
+                pass
+
         tts_stream.feed(tts_generator())
         tts_stream.play_async(
+            fast_sentence_fragment=False,
+            buffer_threshold_seconds=0.5,
+            minimum_sentence_length=15,
+            minimum_first_fragment_length=15,
             sentence_silence_duration=0.8,
-            comma_silence_duration=0.3
+            comma_silence_duration=0.3,
+            on_audio_chunk=tts_audio_chunk
         )
         
         def process_chunk(content):
@@ -169,6 +208,7 @@ def process_agentic_loop(tts_stream, is_followup=False):
                     spoken_text += detection_buffer
                     console.print(f"\n[bold green]Bernard:[/bold green] {detection_buffer}", end="")
                     sys.stdout.flush()
+                    add_chat_message('assistant', spoken_text, True)
                     return strip_markdown(detection_buffer)
                 else:
                     return None
@@ -180,9 +220,13 @@ def process_agentic_loop(tts_stream, is_followup=False):
                 spoken_text += content
                 console.print(content, end="")
                 sys.stdout.flush()
+                add_chat_message('assistant', spoken_text, True)
                 return strip_markdown(content)
 
         try:
+            # Inject a short silence to wake up the soundcard and avoid clipping the first word
+            tts_queue.put("[wake] ")
+
             # Process the first chunk
             clean_text = process_chunk(first_chunk_data['message']['content'])
             if clean_text: tts_queue.put(clean_text)
@@ -224,6 +268,7 @@ def process_agentic_loop(tts_stream, is_followup=False):
         if spoken_text.strip() and not is_json_action:
             conversation_history.append({'role': 'assistant', 'content': spoken_text})
             save_session()
+            add_chat_message('assistant', spoken_text, False)
 
         # If it was an action instead of speech, execute it!
         if is_json_action:
@@ -282,6 +327,11 @@ def get_greeting():
         return "Good evening sir. Bernard is online and ready to assist you."
 
 def main():
+    import time
+    # Allow the WebView DOM a moment to mount before changing state
+    time.sleep(1)
+    update_ui_state('loading')
+    
     console.print(Panel(
         "[bold white]BERNARD COPILOT[/bold white]\n[dim]Autonomous AI Assistant • Local • Private[/dim]",
         border_style="bright_cyan",
@@ -292,15 +342,19 @@ def main():
     try:
         console.print("[dim]Allocating VRAM and initializing local Kokoro Neural Engine...[/dim]")
         engine = KokoroEngine(
-            voice="am_puck",  # Very natural, conversational American Male (closest style to af_bella)
-            default_speed=1.35
+            voice="0.5*bm_lewis + 0.5*am_puck + 0.2*af_bella + 0.3*bm_george + 0.4*am_michael",  # Custom 5-voice blend
+            default_speed=1.25,
+            trim_silence=True,
+            extra_start_ms=0, # Prevent deleting the first consonant
+            fade_in_ms=10     # Prevent a sharp 'pop' at the start of the audio
         )
-        console.print("[green]✓[/green] TTS Engine loaded (Kokoro • am_puck @ 1.35x)")
+        console.print("[green]✓[/green] TTS Engine loaded (Kokoro • custom_blend @ 1.25x)")
     except Exception as e:
         console.print(f"[yellow]⚠[/yellow] KokoroEngine failed, using system voice: {e}")
         engine = SystemEngine()
         
     tts_stream = TextToAudioStream(engine)
+    tts_stream.add_pause("wake", 0.4) # Add 400ms silence tag to wake up Bluetooth headsets and PyAudio
     
     console.print("[dim]Loading Moonshine v2 Tiny STT Model...[/dim]")
     
@@ -311,6 +365,7 @@ def main():
             # \r carriage return and \033[K clears the current line so it acts in-place
             sys.stdout.write(f"\r\033[K\033[90m🎤 {text}\033[0m")
             sys.stdout.flush()
+            add_chat_message('user', text.strip(), True)
 
     recorder = AudioToTextRecorder(
         transcription_engine="moonshine",
@@ -325,6 +380,8 @@ def main():
         enable_realtime_transcription=True,
         use_main_model_for_realtime=True,
         on_realtime_transcription_update=realtime_callback,
+        on_vad_detect_start=lambda: update_ui_state('listening'),
+        on_vad_detect_stop=lambda: update_ui_state('idle'),
     )
     console.print("[green]✓[/green] STT loaded (Moonshine v2 Tiny • Streaming)")
     
@@ -340,9 +397,11 @@ def main():
     ))
     
     # Startup Greeting — Bernard introduces himself
+    update_ui_state('idle')
     greeting = get_greeting()
     console.print(f"\n[bold green]Bernard:[/bold green] {greeting}")
-    tts_stream.feed(greeting)
+    add_chat_message('assistant', greeting, False)
+    tts_stream.feed(f"[wake] {greeting}")
     tts_stream.play_async(
         sentence_silence_duration=1.5,
         comma_silence_duration=0.3
@@ -359,6 +418,7 @@ def main():
                 if text and text.strip():
                     sys.stdout.write("\r\033[K")
                     sys.stdout.flush()
+                    add_chat_message('user', text.strip(), False)
                     input_queue.put(("voice", text.strip()))
         except Exception:
             pass
@@ -369,6 +429,7 @@ def main():
             while True:
                 text = input()
                 if text and text.strip():
+                    add_chat_message('user', text.strip(), False)
                     input_queue.put(("keyboard", text.strip()))
         except (EOFError, KeyboardInterrupt):
             pass
@@ -387,7 +448,7 @@ def main():
             console.print("\n[bold red]Shutting down Bernard...[/bold red]")
             goodbye_msg = "Goodbye sir. Shutting down."
             console.print(f"[bold green]Bernard:[/bold green] {goodbye_msg}")
-            tts_stream.feed(goodbye_msg)
+            tts_stream.feed(f"[wake] {goodbye_msg}")
             tts_stream.play_async(sentence_silence_duration=1.5, comma_silence_duration=0.3)
             while tts_stream.is_playing():
                 time.sleep(0.1)

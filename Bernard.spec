@@ -13,7 +13,7 @@ VENV_SITE = r'D:\PROJECTS\Bernard-copilot\.venv\Lib\site-packages'
 WHISPER_MODEL_SNAPSHOT = r'C:\Users\Aditya Fere\.cache\huggingface\hub\models--Systran--faster-whisper-base\snapshots\ebe41f70d5b6dfa9166e2c581c45c9c0cfc57b66'
 
 a = Analysis(
-    ['bernard_main.py'],
+    ['ui.py'],
     pathex=[r'D:\PROJECTS\Bernard-copilot'],
     binaries=[
         # ctranslate2 native DLLs (required by faster-whisper)
@@ -22,6 +22,8 @@ a = Analysis(
         (os.path.join(VENV_SITE, 'ctranslate2', '_ext.cp312-win_amd64.pyd'), 'ctranslate2'),
     ],
     datas=[
+        # React Web UI Assets
+        (os.path.join(r'D:\PROJECTS\Bernard-copilot\ui\dist'), r'ui\dist'),
         # Whisper Base STT Model files
         (os.path.join(WHISPER_MODEL_SNAPSHOT, 'model.bin'), 'whisper_model'),
         (os.path.join(WHISPER_MODEL_SNAPSHOT, 'config.json'), 'whisper_model'),
@@ -35,6 +37,8 @@ a = Analysis(
         (os.path.join(VENV_SITE, '_webrtcvad.cp312-win_amd64.pyd'), '.'),
         # onnxruntime data (VAD model used by RealtimeSTT)
         (os.path.join(VENV_SITE, 'onnxruntime'), 'onnxruntime'),
+        # language_tags data (required by Kokoro/misaki)
+        (os.path.join(VENV_SITE, 'language_tags'), 'language_tags'),
     ],
     hiddenimports=[
         # Core project modules
