@@ -37,6 +37,18 @@ def execute_action(json_payload: str):
         print(f"Error: Invalid JSON payload -> {e}")
         return {"error": f"Invalid JSON: {e}"}
 
+    # Handle OpenAI-style tool_calls wrapper if the LLM hallucinates it
+    if "tool_calls" in data and isinstance(data["tool_calls"], list) and len(data["tool_calls"]) > 0:
+        call = data["tool_calls"][0]
+        if "function" in call:
+            func = call["function"]
+            if isinstance(func, dict):
+                data["action"] = func.get("name")
+                data["args"] = func.get("arguments", {})
+            elif isinstance(func, str):
+                data["action"] = func
+                data["args"] = call.get("args", call.get("arguments", {}))
+
     action_name = data.get("action")
     if not action_name:
         print("Error: No 'action' key found in JSON.")

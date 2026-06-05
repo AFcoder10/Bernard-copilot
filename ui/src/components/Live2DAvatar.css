@@ -1,0 +1,76 @@
+.live2d-avatar-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  position: relative;
+}
+
+.live2d-avatar-frame {
+  width: 180px;
+  height: 180px;
+  border-radius: 50%;
+  overflow: hidden;
+  border: 4px solid rgba(255, 255, 255, 0.2);
+  position: relative;
+  background-color: #111; /* Inside of the mouth */
+  transition: box-shadow 0.5s ease, border-color 0.5s ease;
+}
+
+/* 
+  The dark void behind the jaw, so when it opens, 
+  it looks like an open mouth instead of a hole in the universe. 
+*/
+.live2d-mouth-interior {
+  position: absolute;
+  top: 65%;
+  left: 20%;
+  width: 60%;
+  height: 20%;
+  background-color: #050505;
+  border-radius: 10px;
+  z-index: 1;
+}
+
+.live2d-part {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  z-index: 2;
+  will-change: transform;
+}
+
+.live2d-part img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+/* Top half of the head, cut right at the upper lip line (~68%) */
+.live2d-top {
+  clip-path: polygon(0 0, 100% 0, 100% 68%, 0 68%);
+}
+
+/* Bottom half (Jaw and beard), cut from the lower lip line down */
+.live2d-jaw {
+  clip-path: polygon(0 68%, 100% 68%, 100% 100%, 0 100%);
+  z-index: 3; /* Render slightly above to overlap clean */
+}
+
+.emotion-badge {
+  position: absolute;
+  bottom: 10px;
+  background: rgba(0, 0, 0, 0.6);
+  color: #fff;
+  padding: 4px 12px;
+  border-radius: 12px;
+  font-size: 0.8rem;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  backdrop-filter: blur(4px);
+  border: 1px solid rgba(255,255,255,0.1);
+}

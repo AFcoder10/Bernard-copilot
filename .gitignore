@@ -41,3 +41,9 @@ test_output.mp3
 test_edge_tts.py
 build
 dist
+config.json
+test.html
+expressions_demo.html
+ui/public/voxel_face.json
+generate_voxels.py
+clean_session.py

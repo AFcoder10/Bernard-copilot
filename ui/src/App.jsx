@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
+import { LedMatrixFace } from './components/LedMatrixFace'
 import './App.css'
 
 function App() {
@@ -23,6 +24,7 @@ function App() {
     window.updateBernardState = (newState, newAmplitude = 0) => {
       setState(newState)
       setAmplitude(newAmplitude)
+      window.__currentAmplitude = newAmplitude
     }
 
     window.addChatMessage = (role, text, isPartial) => {
@@ -87,7 +89,7 @@ function App() {
     }
   }, [state])
 
-  const currentAmp = state === 'listening' ? micAmplitude : state === 'speaking' ? amplitude : 0
+  const currentAmp = state === 'listening' ? micAmplitude : 0
 
   return (
     <div className="glass-window drag-area">
@@ -96,28 +98,39 @@ function App() {
         <div className="status">{state.toUpperCase()}</div>
       </div>
       
-      <div className="chat-container drag-area">
-        <AnimatePresence initial={false}>
-          {messages.map((msg) => (
-            <motion.div 
-              key={msg.id}
-              initial={{ opacity: 0, y: 15, scale: 0.95 }}
-              animate={{ opacity: 1, y: 0, scale: 1 }}
-              transition={{ duration: 0.2 }}
-              className={`message-wrapper ${msg.role}`}
-            >
-              <div className={`message-bubble ${msg.isPartial ? 'partial' : ''}`}>
-                {msg.text}
-                {msg.isPartial && <span className="blinking-cursor">|</span>}
-              </div>
-            </motion.div>
-          ))}
-        </AnimatePresence>
-        <div ref={messagesEndRef} style={{ height: '10px' }} />
+      <div className="avatar-container drag-area" style={{ flex: 1, width: '100%', display: 'flex', position: 'relative' }}>
+        <LedMatrixFace state={state} amplitude={amplitude} />
       </div>
 
       <div className="waveform-container drag-area">
         <Waveform state={state} amplitude={currentAmp} />
+      </div>
+
+      <div className="input-container drag-area" style={{ padding: '0 15px 15px 15px' }}>
+        <input 
+          type="text" 
+          placeholder="Type to Bernard..." 
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' && e.target.value.trim()) {
+              if (window.pywebview && window.pywebview.api) {
+                window.pywebview.api.send_prompt(e.target.value.trim());
+                e.target.value = '';
+              }
+            }
+          }}
+          style={{ 
+            width: '100%', 
+            padding: '10px 15px', 
+            borderRadius: '20px', 
+            border: '1px solid rgba(255,255,255,0.1)', 
+            outline: 'none', 
+            backgroundColor: 'rgba(0,0,0,0.5)', 
+            color: 'white',
+            fontFamily: 'inherit',
+            fontSize: '13px',
+            boxSizing: 'border-box'
+          }}
+        />
       </div>
     </div>
   )

@@ -245,7 +245,7 @@ def list_ui_elements(window_title: str = ""):
                 window = auto.GetRootControl()
             
         elements = []
-        for control, depth in auto.WalkTree(window, getChildrenFunc=lambda c: c.GetChildren(), includeTop=False, maxDepth=6):
+        for control, depth in auto.WalkControl(window, includeTop=False, maxDepth=6):
             if control.Name and control.ControlType in [auto.ControlType.ButtonControl, auto.ControlType.ListItemControl, auto.ControlType.TabItemControl, auto.ControlType.EditControl]:
                 elements.append(f"{control.ControlTypeName}: '{control.Name}'")
                 
@@ -523,6 +523,43 @@ def set_screen_brightness(level: int):
         import screen_brightness_control as sbc
         sbc.set_brightness(max(0, min(100, level)))
         return {"status": "success", "message": f"Brightness set to {level}%."}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+def toggle_windows_theme(mode: str):
+    """Switch Windows between light and dark mode. Mode must be 'dark' or 'light'."""
+    print(f"[Tool] Toggling Windows theme to {mode}...")
+    try:
+        import winreg
+        val = 0 if mode.lower() == 'dark' else 1
+        path = r"SOFTWARE\Microsoft\Windows\CurrentVersion\Themes\Personalize"
+        key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, path, 0, winreg.KEY_SET_VALUE)
+        winreg.SetValueEx(key, "AppsUseLightTheme", 0, winreg.REG_DWORD, val)
+        winreg.SetValueEx(key, "SystemUsesLightTheme", 0, winreg.REG_DWORD, val)
+        winreg.CloseKey(key)
+        return {"status": "success", "message": f"Windows theme set to {mode} mode."}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+def media_controls(action: str):
+    """Controls system media playback. Action must be 'playpause', 'next', 'previous', 'stop', or 'mute'."""
+    print(f"[Tool] Executing media control: {action}...")
+    try:
+        import pyautogui
+        valid_actions = {
+            'playpause': 'playpause',
+            'play': 'playpause',
+            'pause': 'playpause',
+            'next': 'nexttrack',
+            'previous': 'prevtrack',
+            'stop': 'stop',
+            'mute': 'volumemute'
+        }
+        key = valid_actions.get(action.lower())
+        if not key:
+            return {"status": "error", "message": "Invalid action. Use playpause, next, previous, stop, or mute."}
+        pyautogui.press(key)
+        return {"status": "success", "message": f"Media action '{action}' executed."}
     except Exception as e:
         return {"status": "error", "message": str(e)}
 
@@ -858,10 +895,29 @@ def get_music_status():
     except Exception as e:
         return {"status": "error", "message": str(e)}
 
+def set_humor_level(level: int):
+    """Sets Bernard's humor level by saving it to config.json."""
+    try:
+        config = {}
+        config_path = "config.json"
+        if os.path.exists(config_path):
+            with open(config_path, "r") as f:
+                try:
+                    config = json.load(f)
+                except:
+                    pass
+        config["humor_level"] = int(level)
+        with open(config_path, "w") as f:
+            json.dump(config, f, indent=4)
+        return {"status": "success", "message": f"Humor level permanently set to {level}%"}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
 # =============================================================================
 # TOOL REGISTRY — Bernard picks what he needs from here
 # =============================================================================
 TOOL_REGISTRY = {
+    "set_humor_level": set_humor_level,
     "run_command": run_command,
     "press_keys": press_keys,
     "type_text": type_text,
@@ -909,6 +965,8 @@ TOOL_REGISTRY = {
     "set_clipboard": set_clipboard,
     "list_open_windows": list_open_windows,
     "switch_to": switch_to,
-    "get_music_status": get_music_status
+    "get_music_status": get_music_status,
+    "toggle_windows_theme": toggle_windows_theme,
+    "media_controls": media_controls
 }
 

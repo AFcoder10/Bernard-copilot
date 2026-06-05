@@ -49,9 +49,12 @@ from rich.markdown import Markdown
 from rich.panel import Panel
 
 from action_executor import execute_action
-from llm_client import SYSTEM_PROMPT
+from llm_client import get_system_prompt
 
 import json
+import asyncio
+import sys
+import os
 
 console = Console()
 
@@ -59,7 +62,7 @@ SESSION_FILE = "session.json"
 
 # The Conversation Memory
 conversation_history = [
-    {'role': 'system', 'content': SYSTEM_PROMPT}
+    {'role': 'system', 'content': get_system_prompt()}
 ]
 
 if os.path.exists(SESSION_FILE):
@@ -97,53 +100,91 @@ def strip_markdown(text):
     text = text.replace('`', '')       # stray backticks
     return text
 
-def process_agentic_loop(tts_stream, is_followup=False):
+def process_agentic_loop(tts_stream, is_followup=False, depth=0):
     """
     Streams the response from Ollama using the full conversation history.
     Shows live thinking tokens and final formatted markdown output.
     Supports barge-in and agentic tool recursion.
-    
-    Thinking mode:
-    - ALWAYS ON for initial user queries (tool selection needs reasoning)
-    - OFF for follow-up calls (just reading tool results and speaking)
-    - Also triggered by keywords like 'think', 'explain', 'why', etc.
     """
     from rich.status import Status
     from rich.live import Live
     
     interrupted_input = None
     
-    if is_followup:
-        status_msg = "[bold cyan]Bernard is summarizing...[/bold cyan]"
+    # Determine if thinking is needed based on query complexity
+    use_thinking = False
+    status_msg = "[bold cyan]Bernard is thinking...[/bold cyan]"
+    
+    last_user_msg = ""
+    for msg in reversed(conversation_history):
+        if msg['role'] == 'user':
+            last_user_msg = msg['content'].lower()
+            break
+            
+    think_keywords = ["think", "reason", "explain", "analyze", "debug", "solve", "calculate", "compare", "why"]
+    is_complex = any(kw in last_user_msg for kw in think_keywords)
+    
+    if depth >= 5:
         use_thinking = False
+        status_msg = "[bold red]Bernard is exhausted from trying...[/bold red]"
+    elif is_followup:
+        status_msg = f"[bold cyan]Bernard is analyzing results (Step {depth})...[/bold cyan]"
+        use_thinking = True  # Tool outputs might need reasoning
     else:
-        last_user_msg = ""
-        for msg in reversed(conversation_history):
-            if msg['role'] == 'user':
-                last_user_msg = msg['content'].lower()
-                break
-        
-        think_keywords = ["think", "reason", "explain", "analyze", "debug", "solve", "calculate", "compare", "why"]
-        is_complex = any(kw in last_user_msg for kw in think_keywords)
-        use_thinking = True
+        use_thinking = is_complex
         status_msg = "[bold cyan]Bernard is thinking deeply... 🧠[/bold cyan]" if is_complex else "[bold cyan]Bernard is thinking...[/bold cyan]"
+
     
     try:
         update_ui_state('thinking')
         # Show thinking spinner while waiting for first token
+        system_prompt = get_system_prompt()
+        if use_thinking:
+            system_prompt += "\nCRITICAL: You must think step-by-step. Put your reasoning inside <think>...</think> tags BEFORE your final response."
+        
+        conversation_history[0]['content'] = system_prompt
+        
+        import json
+        import os
+        config_path = "config.json"
+        config = {}
+        if os.path.exists(config_path):
+            with open(config_path, "r") as f:
+                try: config = json.load(f)
+                except: pass
+                
+        llm_provider = config.get("llm_provider", "ollama")
+        
         with Status(status_msg, spinner="dots", console=console):
-            response_stream = ollama.chat(
-                model='gemma4:e2b',
-                messages=conversation_history,
-                stream=True,
-                think=use_thinking
-            )
-            
-            # Fetch the first chunk to break out of the spinner
-            try:
-                first_chunk_data = next(response_stream)
-            except StopIteration:
-                return None
+            if llm_provider == "ollama":
+                response_stream = ollama.chat(
+                    model=config.get("llm_model", "gemma4:e2b"),
+                    messages=conversation_history,
+                    stream=True,
+                    think=use_thinking
+                )
+                try:
+                    first_chunk_data = next(response_stream)
+                    first_text = first_chunk_data['message']['content']
+                except StopIteration:
+                    return None
+            else:
+                from openai import OpenAI
+                client = OpenAI(
+                    api_key=config.get("llm_api_key", ""),
+                    base_url=config.get("llm_base_url", "https://api.openai.com/v1")
+                )
+                response_stream = client.chat.completions.create(
+                    model=config.get("llm_model", "gpt-4o"),
+                    messages=conversation_history,
+                    stream=True,
+                    temperature=0.8
+                )
+                try:
+                    first_chunk_data = next(response_stream)
+                    first_text = first_chunk_data.choices[0].delta.content or ""
+                except StopIteration:
+                    return None
 
         first_chunk = True
         is_json_action = False
@@ -152,6 +193,13 @@ def process_agentic_loop(tts_stream, is_followup=False):
         
         detection_buffer = ""
         decided = False
+        
+        expression_buffer = ""
+        in_expression = False
+        expressions_queue = []
+        
+        in_think = False
+        potential_tag = ""
 
         # Decouple LLM streaming from TTS audio playing using a queue
         import queue
@@ -166,11 +214,29 @@ def process_agentic_loop(tts_stream, is_followup=False):
                 yield chunk
 
         # Start TTS playing in background
+        audio_played_seconds = 0.0
+        CHARS_PER_SECOND = 18.0 # Estimated speech rate at 1.25x speed
+        
         def tts_audio_chunk(chunk):
+            nonlocal audio_played_seconds
             import numpy as np
             try:
                 # RealtimeTTS passes 16-bit PCM chunks by default
                 audio = np.frombuffer(chunk, dtype=np.int16)
+                audio_played_seconds += len(audio) / 24000.0 # Kokoro sample rate
+                
+                current_char_estimate = audio_played_seconds * CHARS_PER_SECOND
+                for expr in expressions_queue:
+                    if not expr.get('triggered') and current_char_estimate >= expr['char_index']:
+                        expr['triggered'] = True
+                        try:
+                            import webview
+                            windows = webview.windows
+                            if windows:
+                                windows[0].evaluate_js(f"if(window.triggerExpression) window.triggerExpression('{expr['exp']}')")
+                        except Exception:
+                            pass
+                
                 amp = min(1.0, float(np.sqrt(np.mean((audio / 32768.0)**2)) * 5))
                 update_ui_state('speaking', amp)
             except Exception:
@@ -189,6 +255,80 @@ def process_agentic_loop(tts_stream, is_followup=False):
         
         def process_chunk(content):
             nonlocal decided, is_json_action, json_buffer, spoken_text, detection_buffer
+            nonlocal expression_buffer, in_expression, in_think, potential_tag
+            
+            if not content:
+                return None
+                
+            clean_output = ""
+            for char in content:
+                # 1. Handle <think> tags (which can span chunks)
+                if char == '<':
+                    potential_tag += char
+                    continue
+                elif potential_tag.startswith('<'):
+                    potential_tag += char
+                    if potential_tag == '<think>':
+                        in_think = True
+                        potential_tag = ""
+                        continue
+                    elif potential_tag == '</think>':
+                        in_think = False
+                        potential_tag = ""
+                        continue
+                    elif not ('<think>'.startswith(potential_tag) or '</think>'.startswith(potential_tag)):
+                        # False alarm, flush potential_tag
+                        if not in_think:
+                            # Re-process the flushed tag characters through the expression logic below
+                            for c in potential_tag:
+                                if c == '[' and not in_expression:
+                                    in_expression = True
+                                    expression_buffer = "["
+                                elif in_expression:
+                                    expression_buffer += c
+                                    if c == ']':
+                                        in_expression = False
+                                        if expression_buffer.startswith("[exp:"):
+                                            exp_name = expression_buffer[5:-1]
+                                            expressions_queue.append({
+                                                'char_index': len(spoken_text + clean_output),
+                                                'exp': exp_name,
+                                                'triggered': False
+                                            })
+                                        elif "No tool call" not in expression_buffer and "[END]" not in expression_buffer: # Ignore tool hallucination tags
+                                            clean_output += expression_buffer
+                                        expression_buffer = ""
+                                else:
+                                    clean_output += c
+                        potential_tag = ""
+                    continue
+                    
+                if in_think:
+                    continue
+
+                # 2. Handle [exp:...] tags and ignore [No tool call needed]
+                if char == '[' and not in_expression:
+                    in_expression = True
+                    expression_buffer = "["
+                elif in_expression:
+                    expression_buffer += char
+                    if char == ']':
+                        in_expression = False
+                        if expression_buffer.startswith("[exp:"):
+                            exp_name = expression_buffer[5:-1]
+                            expressions_queue.append({
+                                'char_index': len(spoken_text + clean_output),
+                                'exp': exp_name,
+                                'triggered': False
+                            })
+                            console.print(f"\n[dim magenta]👉 Expression queued: {exp_name}[/dim magenta]")
+                        elif "No tool call" not in expression_buffer and "[END]" not in expression_buffer:
+                            clean_output += expression_buffer
+                        expression_buffer = ""
+                else:
+                    clean_output += char
+            
+            content = clean_output
             if not content:
                 return None
                 
@@ -203,10 +343,11 @@ def process_agentic_loop(tts_stream, is_followup=False):
                     console.print("\n[dim yellow]⚡ Streaming Action...[/dim yellow]")
                     return None
                 elif len(stripped) > 25 and '{' not in stripped:
+                    from rich.markup import escape
                     decided = True
                     is_json_action = False
                     spoken_text += detection_buffer
-                    console.print(f"\n[bold green]Bernard:[/bold green] {detection_buffer}", end="")
+                    console.print(f"\n[bold green]Bernard:[/bold green] {escape(detection_buffer)}", end="")
                     sys.stdout.flush()
                     add_chat_message('assistant', spoken_text, True)
                     return strip_markdown(detection_buffer)
@@ -217,8 +358,9 @@ def process_agentic_loop(tts_stream, is_followup=False):
                 json_buffer += content
                 return None
             else:
+                from rich.markup import escape
                 spoken_text += content
-                console.print(content, end="")
+                console.print(escape(content), end="")
                 sys.stdout.flush()
                 add_chat_message('assistant', spoken_text, True)
                 return strip_markdown(content)
@@ -228,12 +370,17 @@ def process_agentic_loop(tts_stream, is_followup=False):
             tts_queue.put("[wake] ")
 
             # Process the first chunk
-            clean_text = process_chunk(first_chunk_data['message']['content'])
+            clean_text = process_chunk(first_text)
             if clean_text: tts_queue.put(clean_text)
             
             # Stream the rest in main thread
             for chunk in response_stream:
-                clean_text = process_chunk(chunk['message']['content'])
+                if llm_provider == "ollama":
+                    content = chunk['message']['content']
+                else:
+                    content = chunk.choices[0].delta.content or ""
+                    
+                clean_text = process_chunk(content)
                 if clean_text: tts_queue.put(clean_text)
                 
                 # Check for barge-in DURING generation
@@ -306,9 +453,9 @@ def process_agentic_loop(tts_stream, is_followup=False):
             conversation_history.append(tool_message)
             save_session()
             
-            # 5. RECURSION: Read tool output and speak — no thinking needed here
+            # 5. RECURSION: Read tool output and speak or call another tool
             console.print("[dim cyan]↻ Feeding result back to Bernard...[/dim cyan]")
-            process_agentic_loop(tts_stream, is_followup=True)
+            process_agentic_loop(tts_stream, is_followup=True, depth=depth + 1)
             
     except Exception as e:
         console.print(f"[bold red]Error communicating with Ollama: {e}[/bold red]")
@@ -446,6 +593,7 @@ def main():
         clean_text = text.lower().strip().strip('.').strip('!')
         if clean_text in ["quit", "exit", "stop", "goodbye", "bye"]:
             console.print("\n[bold red]Shutting down Bernard...[/bold red]")
+            update_ui_state('expression', 'dead')
             goodbye_msg = "Goodbye sir. Shutting down."
             console.print(f"[bold green]Bernard:[/bold green] {goodbye_msg}")
             tts_stream.feed(f"[wake] {goodbye_msg}")
