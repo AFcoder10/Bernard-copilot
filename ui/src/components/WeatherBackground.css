@@ -1,0 +1,152 @@
+.weather-background {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  z-index: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+/* Rain Effect */
+.weather-background.rain {
+  background: linear-gradient(to bottom, #1a2235, #0d121c);
+}
+
+.rain-container {
+  width: 100%;
+  height: 100%;
+  position: absolute;
+}
+
+.rain-drop {
+  position: absolute;
+  top: -100px;
+  width: 2px;
+  height: 80px;
+  background: linear-gradient(to bottom, rgba(255, 255, 255, 0), rgba(255, 255, 255, 0.4));
+  animation: fall-rain linear infinite;
+}
+
+@keyframes fall-rain {
+  to {
+    transform: translateY(120vh);
+  }
+}
+
+/* Snow Effect */
+.weather-background.snow {
+  background: linear-gradient(to bottom, #2b3a4a, #1a2235);
+}
+
+.snow-container {
+  width: 100%;
+  height: 100%;
+  position: absolute;
+}
+
+.snow-flake {
+  position: absolute;
+  top: -20px;
+  background: #ffffff;
+  border-radius: 50%;
+  filter: blur(1px);
+  animation: fall-snow linear infinite;
+}
+
+@keyframes fall-snow {
+  to {
+    transform: translateY(120vh) translateX(30px);
+  }
+}
+
+/* Clear / Sun Effect */
+.weather-background.clear {
+  background: linear-gradient(to bottom, #112d4e, #050608);
+}
+
+.sun-container {
+  position: absolute;
+  top: -10%;
+  right: -5%;
+  width: 50vw;
+  height: 50vw;
+  max-width: 600px;
+  max-height: 600px;
+  pointer-events: none;
+}
+
+.sun-glow {
+  position: absolute;
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(255, 200, 50, 0.4) 0%, rgba(255, 120, 0, 0.1) 40%, transparent 70%);
+  animation: pulse-sun 4s ease-in-out infinite alternate;
+}
+
+@keyframes pulse-sun {
+  from {
+    transform: scale(1);
+    opacity: 0.8;
+  }
+  to {
+    transform: scale(1.1);
+    opacity: 1;
+  }
+}
+
+/* Clouds Effect */
+.weather-background.clouds {
+  background: linear-gradient(to bottom, #2b3238, #1a1e24);
+}
+
+.clouds-container {
+  width: 100%;
+  height: 100%;
+  position: absolute;
+}
+
+.cloud {
+  position: absolute;
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 50%;
+  filter: blur(40px);
+  animation: drift linear infinite;
+}
+
+.cloud-1 {
+  width: 400px;
+  height: 150px;
+  top: 10%;
+  left: -20%;
+  animation-duration: 40s;
+}
+
+.cloud-2 {
+  width: 600px;
+  height: 200px;
+  top: 40%;
+  left: -30%;
+  animation-duration: 60s;
+  animation-delay: -10s;
+}
+
+.cloud-3 {
+  width: 500px;
+  height: 180px;
+  bottom: 10%;
+  left: -25%;
+  animation-duration: 50s;
+  animation-delay: -20s;
+}
+
+@keyframes drift {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(120vw);
+  }
+}

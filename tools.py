@@ -916,19 +916,152 @@ def set_humor_level(level: int):
 # =============================================================================
 # TOOL REGISTRY — Bernard picks what he needs from here
 # =============================================================================
+
+def search_past_context(query: str):
+    """Searches the compacted JSON long-term memory for past conversations outside the active window."""
+    print(f"[Tool] Searching past context for: {query}")
+    import json, os
+    long_term_file = "bernard_long_term_memory.json"
+    if not os.path.exists(long_term_file):
+        return {"status": "success", "results": "No past context found. Memory is empty."}
+        
+    try:
+        with open(long_term_file, "r", encoding="utf-8") as f:
+            data = json.load(f)
+            
+        if not data:
+            return {"status": "success", "results": "No past context found. Memory is empty."}
+            
+        results = []
+        query_words = query.lower().split()
+        for entry in reversed(data):
+            summary = entry.get("summary", "").lower()
+            if any(word in summary for word in query_words):
+                results.append(f"[{entry.get('timestamp')}] {entry.get('summary')}")
+                
+        if not results:
+            return {"status": "success", "results": "No relevant past context found for the query."}
+            
+        return {"status": "success", "results": "\\n".join(results[:5])}
+    except Exception as e:
+        return {"status": "error", "error": str(e)}
+
+def get_llm_providers():
+    import json
+    try:
+        with open("config.json", "r") as f:
+            config = json.load(f)
+        return {"providers": list(config.get("providers", {}).keys()), "current": config.get("current_provider")}
+    except Exception as e:
+        return {"error": str(e)}
+
+def set_llm_provider(provider_name: str):
+    import json
+    try:
+        with open("config.json", "r") as f:
+            config = json.load(f)
+        if provider_name not in config.get("providers", {}):
+            return {"error": "Provider not found."}
+        config["current_provider"] = provider_name
+        with open("config.json", "w") as f:
+            json.dump(config, f, indent=4)
+        return {"status": "success", "message": f"Provider switched to {provider_name}. Note: restart required."}
+    except Exception as e:
+        return {"error": str(e)}
+
+def set_witty_level(level: int):
+    import json
+    try:
+        with open("config.json", "r") as f:
+            config = json.load(f)
+        config["humor_level"] = level
+        with open("config.json", "w") as f:
+            json.dump(config, f, indent=4)
+        return {"status": "success"}
+    except Exception as e:
+        return {"error": str(e)}
+
+def close_window(window_title: str):
+    import pygetwindow as gw
+    try:
+        windows = gw.getWindowsWithTitle(window_title)
+        if windows:
+            windows[0].close()
+            return {"status": "success", "message": f"Closed window: {window_title}"}
+        return {"error": "Window not found."}
+    except Exception as e:
+        return {"error": str(e)}
+
+
+
+
+def clear_session():
+    """Wipes the current conversation memory."""
+    print("[Tool] Clearing session memory...")
+    try:
+        import os
+        if os.path.exists("session.json"):
+            os.remove("session.json")
+        return {"status": "success", "message": "Session memory cleared on disk. Active context has been reset."}
+    except Exception as e:
+        return {"status": "error", "error": str(e)}
+
+def clear_all_memory():
+    """Wipes the active session, long-term memory, and SQLite database completely."""
+    print("[Tool] Clearing ALL memory...")
+    try:
+        import os
+        import sqlite3
+        
+        # 1. Clear session.json
+        if os.path.exists("session.json"):
+            os.remove("session.json")
+            
+        # 2. Clear long term json
+        if os.path.exists("bernard_long_term_memory.json"):
+            os.remove("bernard_long_term_memory.json")
+            
+        # 3. Clear SQLite database
+        conn = sqlite3.connect("bernard_memory.db")
+        cursor = conn.cursor()
+        cursor.execute("DELETE FROM memories")
+        conn.commit()
+        conn.close()
+        
+        return {"status": "success", "message": "All session data, long-term history, and factual memories have been permanently erased."}
+    except Exception as e:
+        return {"status": "error", "error": str(e)}
+
+
+
+
+def get_humor_level():
+    import json, os
+    try:
+        config = {}
+        if os.path.exists("config.json"):
+            with open("config.json", "r") as f:
+                config = json.load(f)
+        humor = config.get("humor_level", 100)
+        witty = config.get("witty_level", 7)
+        return {"status": "success", "humor_level": humor, "witty_level": witty}
+    except Exception as e:
+        return {"error": str(e)}
+
+
+
 TOOL_REGISTRY = {
-    "set_humor_level": set_humor_level,
+    "open_app": open_app,
+    "list_files": list_files,
     "run_command": run_command,
-    "press_keys": press_keys,
-    "type_text": type_text,
-    "search_web": search_web,
     "read_file": read_file,
     "write_file": write_file,
-    "list_files": list_files,
     "get_clipboard": get_clipboard,
+    "search_web": search_web,
+    "press_keys": press_keys,
+    "type_text": type_text,
     "take_screenshot": take_screenshot,
     "get_current_time": get_current_time,
-    "open_app": open_app,
     "click_coordinates": click_coordinates,
     "move_mouse": move_mouse,
     "list_ui_elements": list_ui_elements,
@@ -944,7 +1077,6 @@ TOOL_REGISTRY = {
     "get_active_window": get_active_window,
     "set_system_volume": set_system_volume,
     "get_weather": get_weather,
-    "extract_text_from_image": extract_text_from_image,
     "get_system_stats": get_system_stats,
     "get_current_location": get_current_location,
     "get_battery_status": get_battery_status,
@@ -967,6 +1099,14 @@ TOOL_REGISTRY = {
     "switch_to": switch_to,
     "get_music_status": get_music_status,
     "toggle_windows_theme": toggle_windows_theme,
-    "media_controls": media_controls
+    "media_controls": media_controls,
+    "search_past_context": search_past_context,
+    "get_llm_providers": get_llm_providers,
+    "set_llm_provider": set_llm_provider,
+    "set_witty_level": set_witty_level,
+    "get_humor_level": get_humor_level,
+    "set_humor_level": set_humor_level,
+    "close_window": close_window,
+    "clear_session": clear_session,
+    "clear_all_memory": clear_all_memory
 }
-

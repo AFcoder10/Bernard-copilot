@@ -49,13 +49,13 @@ export function LedMatrixFace({ state, amplitude }) {
       } else if (emo.includes('sad') || emo.includes('concerned')) {
         color = '#3366ff';
         glow = 'rgba(51, 102, 255, 0.6)';
-      } else if (emo.includes('sleep')) {
+      } else if (emo.includes('sleep') || emo.includes('bored')) {
         color = '#0044ff';
         glow = 'rgba(0, 68, 255, 0.6)';
-      } else if (emo.includes('fear') || emo.includes('surprise') || emo.includes('confused') || emo.includes('think')) {
+      } else if (emo.includes('fear') || emo.includes('surprise') || emo.includes('confused') || emo.includes('think') || emo.includes('scared') || emo.includes('alarm')) {
         color = '#cc33ff';
         glow = 'rgba(204, 51, 255, 0.6)';
-      } else if (emo.includes('annoyed')) {
+      } else if (emo.includes('annoyed') || emo.includes('disgust') || emo.includes('exasperated')) {
         color = '#ff8800';
         glow = 'rgba(255, 136, 0, 0.6)';
       }
@@ -198,6 +198,41 @@ export function LedMatrixFace({ state, amplitude }) {
           } else {
              grid[browY-1][cx-1] = true; grid[browY-1][cx] = true; grid[browY-1][cx+1] = true;
           }
+        } else if (type === 'scared') {
+          // Tall trembling eyes
+          const xOff = Math.sin(Date.now() / 50) > 0.5 ? 1 : 0;
+          grid[cy-1][cx+xOff] = true; grid[cy][cx+xOff] = true; grid[cy+1][cx+xOff] = true;
+          // High concerned brows
+          const innerX = isRight ? cx - 1 : cx + 1;
+          const outerX = isRight ? cx + 1 : cx - 1;
+          grid[browY+1][outerX+xOff] = true;
+          grid[browY][cx+xOff] = true;
+          grid[browY - 1][innerX+xOff] = true;
+        } else if (type === 'bored') {
+          // Half closed eyes
+          grid[cy][cx-1] = true; grid[cy][cx] = true; grid[cy][cx+1] = true;
+          // Flat low brows
+          grid[browY + 1][cx - 1] = true; grid[browY + 1][cx] = true; grid[browY + 1][cx + 1] = true;
+        } else if (type === 'disgust') {
+          // Squinting eyes
+          grid[cy][cx-1] = true; grid[cy][cx] = true; grid[cy][cx+1] = true;
+          grid[cy-1][cx] = true;
+          // Wrinkled nose brows
+          const innerX = isRight ? cx - 1 : cx + 1;
+          grid[browY + 1][cx] = true; grid[browY][innerX] = true; 
+        } else if (type === 'exasperated') {
+          // Flat eyes, no brows (like the fallback)
+          grid[cy][cx-1] = true; grid[cy][cx] = true; grid[cy][cx+1] = true;
+        } else if (type === 'alarmed') {
+          // Wide open ring eyes
+          grid[cy-1][cx-1] = true; grid[cy-1][cx] = true; grid[cy-1][cx+1] = true;
+          grid[cy][cx-1] = true; grid[cy][cx+1] = true; // empty center
+          grid[cy+1][cx-1] = true; grid[cy+1][cx] = true; grid[cy+1][cx+1] = true;
+          
+          // High arched brows
+          grid[browY - 2][cx - 1] = true;
+          grid[browY - 3][cx] = true;
+          grid[browY - 2][cx + 1] = true;
         } else {
           // Fallback
           grid[cy][cx-1] = true; grid[cy][cx] = true; grid[cy][cx+1] = true;
@@ -222,6 +257,12 @@ export function LedMatrixFace({ state, amplitude }) {
       if (emo.includes('love')) eyeType = 'love';
       if (emo.includes('dead')) eyeType = 'dead';
       if (emo.includes('smug')) eyeType = 'smug';
+      if (emo.includes('scared')) eyeType = 'scared';
+      if (emo.includes('bored')) eyeType = 'bored';
+      if (emo.includes('alarm')) eyeType = 'alarmed';
+      if (emo.includes('bored')) eyeType = 'bored';
+      if (emo.includes('disgust')) eyeType = 'disgust';
+      if (emo.includes('exasperated')) eyeType = 'exasperated';
 
       drawEyeAndBrow(5, 5, eyeType, false); // Left
       drawEyeAndBrow(14, 5, eyeType, true);  // Right
@@ -260,11 +301,32 @@ export function LedMatrixFace({ state, amplitude }) {
         } else if (eyeType === 'smug') {
           if (x > startX + 5) y -= 1; // smirk on one side
           if (x === endX) y -= 1;
+        } else if (eyeType === 'scared') {
+          const xOff = Math.sin(Date.now() / 50) > 0.5 ? 1 : 0;
+          if (x < startX + 3 || x > endX - 3) continue;
+          y += 1;
+          // Don't modify the loop variable x! Just use a temporary variable for drawing
+          let drawX = x + xOff;
+          for (let dy = 0; dy <= height; dy++) {
+            if (y + dy < GRID_SIZE && drawX < GRID_SIZE) {
+              grid[y + dy][drawX] = true;
+            }
+          }
+          continue; // Skip the default drawing loop below
+        } else if (eyeType === 'bored') {
+          if (x < startX + 3 || x > endX - 3) continue;
+        } else if (eyeType === 'disgust') {
+          if (x < startX + 2 || x > endX - 3) continue;
+          if (x === startX + 2) y -= 1;
+          if (x === endX - 3) y += 1;
         } else if (eyeType === 'annoyed') {
           // Completely deadpan flat line
         } else if (eyeType === 'sigh' || eyeType === 'dead') {
           // Slightly sad flat line
           if (x === startX || x === endX) y += 1;
+        } else if (eyeType === 'exasperated') {
+          // Flat line with edges curled UP (default fallback shape)
+          if (x === startX || x === endX) y -= 1;
         } else {
           // Neutral/Calm: Slight polite smile instead of a flat serious line
           if (x === startX || x === endX) y -= 1;

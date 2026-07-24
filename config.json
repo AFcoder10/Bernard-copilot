@@ -1,0 +1,47 @@
+{
+    "humor_level": 100,
+    "current_provider": "gemini",
+    "tts": {
+        "current_engine": "qwen",
+        "cartesia_api_key": "${CARTESIA_API_KEY}",
+        "cartesia_voice_id": "4bc3cb8c-adb9-4bb8-b5d5-cbbef950b991",
+        "kokoro_voice": "0.5*bm_george + 0.5*bm_lewis",
+        "qwen_instruct": "speak fast like in a hurry , speak with tones depending on text tone",
+        "speed": 1.25
+    },
+    "providers": {
+        "ollama": {
+            "model": "qwen3.5:0.8b",
+            "base_url": "http://localhost:11434",
+            "options": {
+                "num_ctx": 1024,
+                "temperature": 0.1,
+                "top_p": 0.9,
+                "top_k": 40,
+                "num_predict": 512,
+                "repeat_penalty": 1.15
+            }
+        },
+        "nvidia": {
+            "model": "openai/gpt-oss-20b",
+            "base_url": "https://integrate.api.nvidia.com/v1",
+            "api_key": "${NVIDIA_API_KEY}"
+        },
+        "openrouter": {
+            "model": "google/gemma-2-9b-it:free",
+            "base_url": "https://openrouter.ai/api/v1",
+            "api_key": "${OPENROUTER_API_KEY}"
+        },
+        "huggingface": {
+            "model": "google/gemma-4-E2B-it",
+            "hf_token": "${HF_TOKEN}",
+            "cache_dir": "./models"
+        },
+        "gemini": {
+            "model": "gemini-2.5-flash",
+            "base_url": "https://generativelanguage.googleapis.com/v1beta/openai/",
+            "api_key": "${GEMINI_API_KEY}"
+        }
+    },
+    "witty_level": 100
+}
